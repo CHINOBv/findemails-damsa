@@ -1,3 +1,4 @@
+const axios = require('axios');
 const puppeteer = require("puppeteer");
 
 let emailsDatas = [];
@@ -36,6 +37,66 @@ const iterateEmails = async (page) => {
   emailsDatas.push(emails);
 };
 
+class Actions {
+  emailPage;
+  constructor(page, browser) {
+    this.page = page;
+    this.browser = browser;
+  }
+  Login = async () => {
+    await this.page.waitForSelector("#user");
+    await this.page.type("#user", "maximo84");
+    await this.page.type("#pass", "Sarabia144");
+    await this.page.click("#login_submit");
+  };
+  ChangeAccount = async () => {
+    await this.page.waitForSelector("#ddlAccounts_chosen");
+    await this.page.waitForTimeout(1500);
+    await this.page.click("#ddlAccounts_chosen");
+    await this.page.type(
+      "#ddlAccounts_chosen > div > div > input[type=text]",
+      "fumigaciones.com"
+    );
+    await this.page.click("#ddlAccounts_chosen > div > ul > li:nth-child(1)");
+  };
+  EntryEmails = async () => {
+    await this.page.waitForSelector("#item_email_accounts");
+    await this.page.click("#item_email_accounts");
+    await this.page.waitForTimeout(1500);
+    await this.page.click(
+      "#email_table_menu_webmail_asistente\\@fumigaciones\\.com"
+    );
+    await this.page.waitForTimeout(3000);
+    const pages = await this.browser.pages();
+    this.emailPage = await pages[2];
+
+    await this.emailPage.setViewport({ width: 1366, height: 768 });
+    await this.emailPage.setUserAgent(
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36"
+    );
+  };
+  getEmailPage = () => this.emailPage;
+
+  SearchEmails = async () => {
+    await this.emailPage.waitForSelector("#quicksearchbox");
+    await this.emailPage.type("#quicksearchbox", "fumigaciones.com:");
+    await this.emailPage.click("#searchmenulink");
+    await this.emailPage.click("#searchmenu > div > a");
+  };
+  getEmailsPerPage = async (page) => {
+    for (let i = 1; i <= page; i++) {
+      if (i !== 4) {
+        await this.emailPage.waitForSelector("#messagelist > tbody");
+        await iterateEmails(this.emailPage);
+        await this.emailPage.click("#rcmbtn133");
+      } else {
+        console.log("==============END=============");
+      }
+    }
+    await iterateEmails(this.emailPage);
+  };
+}
+
 async function Start() {
   //Se abre el navegador
   const browser = await puppeteer.launch({
@@ -53,83 +114,56 @@ async function Start() {
 
   //Login
   //Se inicia sesion
-  await page.waitForSelector("#user");
-  await page.type("#user", "maximo84");
-  await page.type("#pass", "Sarabia144");
-  await page.click("#login_submit");
+  const actions = new Actions(page, browser);
+  await actions.Login();
 
   //Select Account
   //Se cambia a la cuenta de Fumigaciones
-
-  await page.waitForSelector("#ddlAccounts_chosen");
-  await page.waitForTimeout(1500);
-  await page.click("#ddlAccounts_chosen");
-  await page.type(
-    "#ddlAccounts_chosen > div > div > input[type=text]",
-    "fumigaciones.com"
-  );
-  await page.click("#ddlAccounts_chosen > div > ul > li:nth-child(1)");
-
+  await actions.ChangeAccount();
   //Entry to Emails
   //Entra al listado de emails en el hosting
 
-  await page.waitForSelector("#item_email_accounts");
-  await page.click("#item_email_accounts");
-  await page.waitForTimeout(1500);
-  await page.click("#email_table_menu_webmail_asistente\\@fumigaciones\\.com");
-  await page.waitForTimeout(3000);
-  const pages = await browser.pages();
-  const emailPage = await pages[2];
-
-  await emailPage.setViewport({ width: 1366, height: 768 });
-  await emailPage.setUserAgent(
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36"
-  );
-
+  await actions.EntryEmails();
+  const emailPage = await actions.getEmailPage();
   //Configure Emails view
 
   //Search Email
-
   //Se hace la busqueda entre los correos
-  await emailPage.waitForSelector("#quicksearchbox");
-  await emailPage.type("#quicksearchbox", "fumigaciones.com:");
-  await emailPage.click("#searchmenulink");
-  await emailPage.click("#searchmenu > div > a");
+  await actions.SearchEmails();
 
   //Get Emails Page 1
   //Se obtiene el cuerpo de la tabla que contiene los emials
   await emailPage.waitForSelector("#messagelist > tbody");
-  await iterateEmails(emailPage);
-
-  //Next Page 2
-  await emailPage.click("#rcmbtn133");
-
-  await iterateEmails(emailPage);
-
-  //Next Page 3
-  await emailPage.click("#rcmbtn133");
-  await iterateEmails(emailPage);
-
-  //Next Page 4
-  await emailPage.click("#rcmbtn133");
-  await iterateEmails(emailPage);
-
-  let c = 0;
-  emailsDatas.forEach((e) => {
-    e.forEach(e =>{
-
-      c = c + 1;
-      console.log(c);
-    })
-  });
-  console.log(c);
+  await actions.getEmailsPerPage(4);
+  return emailsDatas.flat();
 }
 
 Start();
 
-/*
+(async () => {
+  const emails = await Start();
+  //console.log(emails);
+  let c = 0;
 
-let bt = document.querySelectorAll('#messagelist > tbody');
-console.log(bt[0].childNodes[0].cells[3].lastElementChild.firstChild.title);
-
-*/
+  await emails.forEach(async (email) => {
+    axios("https://rest.gohighlevel.com/v1/contacts/", {
+      method: "post",
+      headers: {
+        Authorization: "Bearer 9ecbe4ab-50c7-4f7b-a656-8867063d0026",
+        "Content-Type": "application/json",
+      },
+      data: {
+        email: email.emailAddress,
+        name: email.emailFormTo,
+        tags: ["fumigacionescom", "clientes"],
+      },
+    })
+      .then(() => {
+        c = c + 1;
+        //console.log(newUser);
+        console.log(c);
+      })
+      .catch((er) => console.log(er));
+  });
+  console.log("=====END========");
+})();
